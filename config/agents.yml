@@ -21,8 +21,17 @@ agents:
     params:
       effort: low
 
-  # Analista: descobre que documento é, entende a estrutura e desenha o schema de extração.
-  # É a etapa que mais exige raciocínio, por isso o effort mais alto.
+  # Classificador: diz que documento é e como está organizado. Reaproveita o id de um tipo já
+  # registrado quando o documento for desse tipo (é o que mantém o schema estável).
+  classifier:
+    provider: anthropic
+    model: claude-haiku-5-5
+    max_tokens: 8000
+    params:
+      effort: medium
+
+  # Analista: desenha o schema de extração. Só roda para tipos de documento ainda não
+  # registrados; é a etapa que mais exige raciocínio, por isso o effort mais alto.
   analyst:
     provider: anthropic
     model: claude-haiku-5-5
@@ -37,6 +46,13 @@ agents:
     max_tokens: 16000
     params:
       effort: medium
+
+# Um schema por tipo de documento: o primeiro documento de um tipo define os campos e os
+# próximos reaproveitam (`doc-read schemas` lista/remove). O analista é instruído a não usar
+# dados reais nas descrições, mas revise antes de versionar: a pasta fica fora do git por padrão.
+schema_registry:
+  enabled: true
+  path: schemas
 
 providers:
   anthropic:

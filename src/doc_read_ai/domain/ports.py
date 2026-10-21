@@ -9,6 +9,7 @@ from typing import TypeVar
 
 from pydantic import BaseModel
 
+from doc_read_ai.domain.analysis import RegisteredSchema
 from doc_read_ai.domain.config import AgentConfig
 from doc_read_ai.domain.document import Document
 
@@ -38,6 +39,23 @@ class LLMFactoryPort(ABC):
 
     @abstractmethod
     def create(self, config: AgentConfig) -> LLMPort: ...
+
+
+class SchemaRegistryPort(ABC):
+    """Guarda um schema por tipo de documento, para que extrações do mesmo tipo sejam estáveis."""
+
+    @abstractmethod
+    def get(self, document_type: str) -> RegisteredSchema | None: ...
+
+    @abstractmethod
+    def save(self, schema: RegisteredSchema) -> None: ...
+
+    @abstractmethod
+    def list_all(self) -> list[RegisteredSchema]: ...
+
+    @abstractmethod
+    def delete(self, document_type: str) -> bool:
+        """Remove o schema (o próximo documento do tipo terá o schema redesenhado)."""
 
 
 class DocumentLoaderPort(ABC):

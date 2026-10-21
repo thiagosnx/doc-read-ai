@@ -1,12 +1,16 @@
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
 
 from doc_read_ai.bootstrap import build_use_case
+from doc_read_ai.domain.analysis import FieldType, RegisteredSchema
 from doc_read_ai.infrastructure.loaders import LocalFileLoader
+from doc_read_ai.infrastructure.registry import JsonFileSchemaRegistry
 from doc_read_ai.interfaces import cli
+from tests.conftest import field
 from tests.fakes import FakeLLMFactory, pdf_bytes, png_bytes, write_file
 
 runner = CliRunner()
@@ -15,7 +19,7 @@ runner = CliRunner()
 def test_agents_command(config_path: Path) -> None:
     result = runner.invoke(cli.app, ["agents", "--config", str(config_path)])
     assert result.exit_code == 0, result.output
-    for name in ("orchestrator", "analyst", "extractor"):
+    for name in ("orchestrator", "classifier", "analyst", "extractor"):
         assert name in result.output
 
 
@@ -57,3 +61,29 @@ def test_process_directory_writes_json(
     assert saved["status"] == "extracted"
     assert saved["data"]["itens"][0]["descricao"] == "Parafuso"
     assert "Parafuso" in result.output  # árvore de dados renderizada
+
+
+def test_schemas_commands(config_path: Path) -> None:
+    """list/show/rm sobre o registro em disco (cwd do teste é uma pasta temporária)."""
+    args = ["--config", str(config_path)]
+    empty = runner.invoke(cli.app, ["schemas", "list", *args])
+    assert empty.exit_code == 0 and "Nenhum schema" in empty.output
+
+    JsonFileSchemaRegistry(Path("schemas")).save(
+        RegisteredSchema(
+            document_type="boleto_bancario",
+            document_type_label="Boleto Bancário",
+            category="financeiro",
+            fields=[field("linha_digitavel", FieldType.STRING)],
+            created_at=datetime.now(UTC),
+        )
+    )
+
+    listed = runner.invoke(cli.app, ["schemas", "list", *args])
+    assert listed.exit_code == 0 and "boleto_bancario" in listed.output
+    shown = runner.invoke(cli.app, ["schemas", "show", "boleto_bancario", *args])
+    assert shown.exit_code == 0 and "linha_digitavel" in shown.output
+    removed = runner.invoke(cli.app, ["schemas", "rm", "boleto_bancario", *args])
+    assert removed.exit_code == 0
+    missing = runner.invoke(cli.app, ["schemas", "show", "boleto_bancario", *args])
+    assert missing.exit_code == 2

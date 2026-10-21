@@ -19,6 +19,6 @@ class ExtractorAgent(BaseAgent):
             f"Tipo do documento: {analysis.document_type_label} ({analysis.document_type})\n"
             f"Categoria: {analysis.category}\n"
             f"Resumo: {analysis.summary}\n"
-            f"Estrutura (notas do analista): {analysis.structure_notes}"
+            f"Estrutura (notas do classificador): {analysis.structure_notes}"
         )
         return await self._generate(instruction, model, document)

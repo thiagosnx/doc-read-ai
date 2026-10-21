@@ -9,7 +9,7 @@ from pydantic import ValidationError
 from doc_read_ai.domain.config import AppConfig
 from doc_read_ai.domain.errors import DocReadError
 
-REQUIRED_AGENTS = ("orchestrator", "analyst", "extractor")
+REQUIRED_AGENTS = ("orchestrator", "classifier", "analyst", "extractor")
 
 
 class ConfigError(DocReadError):

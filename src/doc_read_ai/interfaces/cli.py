@@ -14,8 +14,18 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.tree import Tree
 
-from doc_read_ai.bootstrap import build_use_case, configure_logging, load_config
-from doc_read_ai.domain.analysis import ExtractionResult, PipelineStatus
+from doc_read_ai.bootstrap import (
+    build_schema_registry,
+    build_use_case,
+    configure_logging,
+    load_config,
+)
+from doc_read_ai.domain.analysis import (
+    ExtractionResult,
+    FieldSpec,
+    PipelineStatus,
+    SchemaSource,
+)
 from doc_read_ai.domain.config import AppConfig
 from doc_read_ai.domain.errors import DocReadError
 from doc_read_ai.infrastructure.config import Settings
@@ -32,6 +42,14 @@ for _stream in (sys.stdout, sys.stderr):
         _stream.reconfigure(encoding="utf-8")
 
 console = Console()
+
+schemas_app = typer.Typer(help="Registro de schemas: um schema estável por tipo de documento.")
+app.add_typer(schemas_app, name="schemas")
+
+SCHEMA_SOURCE_LABEL = {
+    SchemaSource.REGISTRY: "reaproveitado do registro",
+    SchemaSource.DESIGNED: "tipo novo, schema criado e salvo no registro",
+}
 
 STATUS_STYLE = {
     PipelineStatus.EXTRACTED: ("green", "EXTRAÍDO"),
@@ -91,6 +109,69 @@ def agents(config: ConfigOption = None) -> None:
         params = ", ".join(f"{k}={v}" for k, v in agent.params.items()) or "-"
         table.add_row(agent.name, agent.provider, agent.model, str(agent.max_tokens), params)
     console.print(table)
+
+
+@schemas_app.command("list")
+def schemas_list(config: ConfigOption = None) -> None:
+    """Lista os tipos de documento com schema registrado."""
+    registry = build_schema_registry(_load_config_or_exit(config))
+    schemas = registry.list_all()
+    if not schemas:
+        console.print("[dim]Nenhum schema registrado ainda.[/]")
+        return
+    table = Table(title="Schemas registrados")
+    for col in ("Tipo", "Nome", "Categoria", "Campos", "Criado em"):
+        table.add_column(col, overflow="fold")
+    for s in schemas:
+        created = s.created_at.astimezone().strftime("%Y-%m-%d %H:%M")
+        table.add_row(
+            s.document_type, s.document_type_label, s.category, str(len(s.fields)), created
+        )
+    console.print(table)
+
+
+@schemas_app.command("show")
+def schemas_show(
+    document_type: Annotated[str, typer.Argument(help="Id do tipo, ex: nota_fiscal_eletronica")],
+    config: ConfigOption = None,
+) -> None:
+    """Mostra os campos do schema de um tipo de documento."""
+    registry = build_schema_registry(_load_config_or_exit(config))
+    schema = registry.get(document_type)
+    if schema is None:
+        _fail(f"Nenhum schema registrado para '{document_type}'. Veja `doc-read schemas list`.")
+    tree = Tree(f"[bold]{escape(schema.document_type_label)}[/] [dim]({schema.document_type})[/]")
+    for spec in schema.fields:
+        _add_field(tree, spec)
+    console.print(tree)
+
+
+@schemas_app.command("rm")
+def schemas_rm(
+    document_type: Annotated[str, typer.Argument(help="Id do tipo, ex: nota_fiscal_eletronica")],
+    config: ConfigOption = None,
+) -> None:
+    """Remove o schema de um tipo; o próximo documento desse tipo terá o schema redesenhado."""
+    registry = build_schema_registry(_load_config_or_exit(config))
+    if not registry.delete(document_type):
+        _fail(f"Nenhum schema registrado para '{document_type}'.")
+    console.print(f"Schema '{document_type}' removido.")
+
+
+def _add_field(parent: Tree, spec: FieldSpec) -> None:
+    kind = spec.type.value
+    if spec.type == "list" and not spec.subfields:
+        kind = f"list[{(spec.item_type or 'string')}]"
+    required = "" if spec.required else " [dim](opcional)[/]"
+    node = parent.add(
+        f"[cyan]{spec.name}[/]: {kind}{required} [dim]— {escape(spec.description)}[/]"
+    )
+    for sub in spec.subfields:
+        sub_required = "" if sub.required else " [dim](opcional)[/]"
+        node.add(
+            f"[cyan]{sub.name}[/]: {sub.type.value}{sub_required} "
+            f"[dim]— {escape(sub.description)}[/]"
+        )
 
 
 # --- execução ---------------------------------------------------------------------------
@@ -184,6 +265,9 @@ def _render_result(result: ExtractionResult, target: Path) -> None:
         a = result.analysis
         lines.append(f"[bold]Tipo:[/] {escape(a.document_type_label)} [dim]({a.confidence:.0%})[/]")
         lines.append(f"[bold]Resumo:[/] {escape(a.summary)}")
+    if result.schema_source:
+        source = SCHEMA_SOURCE_LABEL[result.schema_source]
+        lines.append(f"[bold]Schema:[/] {result.analysis.document_type} [dim]({source})[/]")
     for error in result.errors:
         lines.append(f"[red]• {escape(error)}[/]")
     lines.append(f"[dim]JSON: {target}[/]")

@@ -5,9 +5,11 @@ import pytest
 
 from doc_read_ai.domain.analysis import (
     DocumentAnalysis,
+    DocumentClassification,
     FieldSpec,
     FieldType,
     ScalarType,
+    SchemaProposal,
     SubFieldSpec,
     ValidationVerdict,
 )
@@ -34,6 +36,27 @@ def analysis(document_type: str, fields: list[FieldSpec], label: str = "") -> Do
         structure_notes="Cabeçalho e tabela.",
         fields=fields,
     )
+
+
+def classification_of(a: DocumentAnalysis) -> DocumentClassification:
+    return DocumentClassification(**a.model_dump(exclude={"fields"}))
+
+
+def agent_llms(verdict: ValidationVerdict, a: DocumentAnalysis, extraction: Any) -> dict:
+    """LLMs falsos dos 4 agentes para um documento válido do tipo `a`."""
+    return {
+        "orchestrator": FakeLLM({ValidationVerdict: verdict}),
+        "classifier": FakeLLM({DocumentClassification: classification_of(a)}),
+        "analyst": FakeLLM({SchemaProposal: SchemaProposal(fields=a.fields)}),
+        "extractor": FakeLLM(extraction=extraction),
+    }
+
+
+@pytest.fixture(autouse=True)
+def isolated_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Roda cada teste numa pasta temporária: o registro de schemas e o .env do projeto
+    nunca são tocados."""
+    monkeypatch.chdir(tmp_path)
 
 
 @pytest.fixture
@@ -103,10 +126,4 @@ NFE_PAYLOAD: dict[str, Any] = {
 
 @pytest.fixture
 def nfe_factory(valid_verdict: ValidationVerdict, nfe_analysis: DocumentAnalysis) -> FakeLLMFactory:
-    return FakeLLMFactory(
-        {
-            "orchestrator": FakeLLM({ValidationVerdict: valid_verdict}),
-            "analyst": FakeLLM({DocumentAnalysis: nfe_analysis}),
-            "extractor": FakeLLM(extraction=NFE_PAYLOAD),
-        }
-    )
+    return FakeLLMFactory(agent_llms(valid_verdict, nfe_analysis, NFE_PAYLOAD))

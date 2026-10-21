@@ -13,6 +13,7 @@ from doc_read_ai.infrastructure.config import (
 VALID_YAML = """
 agents:
   orchestrator: {provider: anthropic, model: m1}
+  classifier: {provider: anthropic, model: m1}
   analyst: {provider: anthropic, model: m2, max_tokens: 1000, params: {effort: high}}
   extractor: {provider: openai, model: m3, system_prompt: "seja breve"}
 providers:
@@ -28,7 +29,8 @@ def _write(tmp_path: Path, text: str) -> Path:
 
 def test_loads_project_config(config_path: Path) -> None:
     config = load_app_config(config_path)
-    assert set(config.agents) == {"orchestrator", "analyst", "extractor"}
+    assert set(config.agents) == {"orchestrator", "classifier", "analyst", "extractor"}
+    assert config.schema_registry.enabled and config.schema_registry.path == "schemas"
     assert all(name == agent.name for name, agent in config.agents.items())
     assert config.providers["anthropic"].api_key_env == "ANTHROPIC_API_KEY"
 
@@ -41,6 +43,7 @@ def test_injects_names_and_defaults(tmp_path: Path) -> None:
     assert analyst.params == {"effort": "high"}
     assert config.agent("orchestrator").max_tokens == 16000
     assert config.agent("extractor").system_prompt == "seja breve"
+    assert config.schema_registry.enabled  # padrão quando o YAML não define
 
 
 def test_missing_required_agent(tmp_path: Path) -> None:

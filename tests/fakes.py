@@ -9,13 +9,17 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from doc_read_ai.domain.analysis import DocumentAnalysis, ValidationVerdict
+from doc_read_ai.domain.analysis import (
+    DocumentClassification,
+    SchemaProposal,
+    ValidationVerdict,
+)
 from doc_read_ai.domain.config import AgentConfig
 from doc_read_ai.domain.document import Document
 from doc_read_ai.domain.errors import LLMError
 from doc_read_ai.domain.ports import LLMFactoryPort, LLMPort
 
-KNOWN_SCHEMAS = (ValidationVerdict, DocumentAnalysis)
+KNOWN_SCHEMAS = (ValidationVerdict, DocumentClassification, SchemaProposal)
 
 # Payload do modelo dinâmico: dict fixo, callable(schema) -> dict, ou exceção a levantar.
 ExtractionResponse = dict[str, Any] | Callable[[type[BaseModel]], dict[str, Any]] | Exception

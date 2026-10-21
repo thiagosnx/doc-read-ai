@@ -47,6 +47,11 @@ def _pascal(text: str) -> str:
     return "".join(part.capitalize() for part in _snake(text).split("_") if part)
 
 
+def normalize_type_id(text: str) -> str:
+    """Id estável de tipo de documento (chave do registro): snake_case ASCII, nunca vazio."""
+    return _snake(text) or "documento"
+
+
 def _shadows_basemodel(name: str) -> bool:
     return name.startswith("model_") or hasattr(BaseModel, name)
 

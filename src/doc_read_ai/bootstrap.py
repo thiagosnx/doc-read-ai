@@ -3,14 +3,20 @@
 import logging
 from pathlib import Path
 
-from doc_read_ai.application.agents import AnalystAgent, ExtractorAgent, OrchestratorAgent
+from doc_read_ai.application.agents import (
+    AnalystAgent,
+    ClassifierAgent,
+    ExtractorAgent,
+    OrchestratorAgent,
+)
 from doc_read_ai.application.graph import build_graph
 from doc_read_ai.application.use_cases import ProcessDocumentUseCase
 from doc_read_ai.domain.config import AppConfig
-from doc_read_ai.domain.ports import DocumentLoaderPort, LLMFactoryPort
+from doc_read_ai.domain.ports import DocumentLoaderPort, LLMFactoryPort, SchemaRegistryPort
 from doc_read_ai.infrastructure.config import Settings, load_app_config, load_env_file
 from doc_read_ai.infrastructure.llm import build_default_llm_factory
 from doc_read_ai.infrastructure.loaders import LocalFileLoader
+from doc_read_ai.infrastructure.registry import InMemorySchemaRegistry, JsonFileSchemaRegistry
 
 
 def load_config(config_path: Path | None = None) -> AppConfig:
@@ -19,12 +25,21 @@ def load_config(config_path: Path | None = None) -> AppConfig:
     return load_app_config(config_path or Settings().doc_read_config)
 
 
+def build_schema_registry(app_config: AppConfig) -> SchemaRegistryPort:
+    """Registro em disco quando ligado no YAML; senão em memória (schema novo por execução)."""
+    settings = app_config.schema_registry
+    if settings.enabled:
+        return JsonFileSchemaRegistry(Path(settings.path))
+    return InMemorySchemaRegistry()
+
+
 def build_use_case(
     config_path: Path | None = None,
     llm_factory: LLMFactoryPort | None = None,
     loader: DocumentLoaderPort | None = None,
+    schema_registry: SchemaRegistryPort | None = None,
 ) -> ProcessDocumentUseCase:
-    """Monta agentes, grafo e caso de uso. Factory/loader injetáveis permitem testes sem rede."""
+    """Monta agentes, grafo e caso de uso. Dependências injetáveis permitem testes sem rede."""
     app_config = load_config(config_path)
     factory = llm_factory or build_default_llm_factory(app_config.providers)
 
@@ -34,8 +49,10 @@ def build_use_case(
 
     graph = build_graph(
         make("orchestrator", OrchestratorAgent),
+        make("classifier", ClassifierAgent),
         make("analyst", AnalystAgent),
         make("extractor", ExtractorAgent),
+        schema_registry or build_schema_registry(app_config),
     )
     return ProcessDocumentUseCase(loader or LocalFileLoader(), graph)
 

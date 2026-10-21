@@ -29,9 +29,17 @@ class ProviderConfig(BaseModel):
     options: dict[str, Any] = Field(default_factory=dict)
 
 
+class SchemaRegistryConfig(BaseModel):
+    """Onde ficam os schemas por tipo de documento. Desligado = schema novo por documento."""
+
+    enabled: bool = True
+    path: str = "schemas"
+
+
 class AppConfig(BaseModel):
     agents: dict[str, AgentConfig]
     providers: dict[str, ProviderConfig] = Field(default_factory=dict)
+    schema_registry: SchemaRegistryConfig = Field(default_factory=SchemaRegistryConfig)
 
     def agent(self, name: str) -> AgentConfig:
         if name not in self.agents:

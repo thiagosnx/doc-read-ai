@@ -5,6 +5,7 @@ recursivos nem usar dict livre: structured outputs exige objetos fechados
 (additionalProperties: false). Por isso FieldSpec tem no máximo dois níveis.
 """
 
+from datetime import datetime
 from enum import StrEnum
 from typing import Any, Literal
 
@@ -65,18 +66,45 @@ class ValidationVerdict(BaseModel):
     legibility: Literal["high", "medium", "low"]
 
 
-class DocumentAnalysis(BaseModel):
-    """Saída do analista: que documento é esse e quais dados ele carrega."""
+class DocumentClassification(BaseModel):
+    """Saída do classificador: que documento é esse e como ele está organizado."""
 
     document_type: str = Field(
-        description="Identificador em snake_case. Ex: nota_fiscal_eletronica"
+        description="Identificador em snake_case. Use o id exato de um tipo já registrado "
+        "quando o documento for desse tipo. Ex: nota_fiscal_eletronica"
     )
     document_type_label: str = Field(description="Nome legível. Ex: Nota Fiscal Eletrônica (NF-e)")
     category: str = Field(description="Categoria ampla. Ex: fiscal, financeiro, identificacao")
     confidence: float = Field(description="Confiança na classificação, de 0 a 1")
     summary: str = Field(description="Resumo de 1-2 frases do conteúdo")
     structure_notes: str = Field(description="Como o documento está organizado (seções, tabelas)")
+
+
+class SchemaProposal(BaseModel):
+    """Saída do analista: o schema de campos a extrair para um tipo de documento novo."""
+
+    fields: list[FieldSpec] = Field(description="Schema dos dados a extrair deste tipo")
+
+
+class DocumentAnalysis(DocumentClassification):
+    """Classificação + schema usado na extração (do registro ou recém-desenhado)."""
+
     fields: list[FieldSpec] = Field(description="Schema dos dados a extrair deste documento")
+
+
+class SchemaSource(StrEnum):
+    REGISTRY = "registry"  # reaproveitado do registro de schemas
+    DESIGNED = "designed"  # desenhado agora pelo analista e salvo no registro
+
+
+class RegisteredSchema(BaseModel):
+    """Schema estável de um tipo de documento: todo documento do mesmo tipo usa os mesmos campos."""
+
+    document_type: str
+    document_type_label: str
+    category: str
+    fields: list[FieldSpec]
+    created_at: datetime
 
 
 class PipelineStatus(StrEnum):
@@ -93,6 +121,7 @@ class ExtractionResult(BaseModel):
     status: PipelineStatus
     verdict: ValidationVerdict | None = None
     analysis: DocumentAnalysis | None = None
+    schema_source: SchemaSource | None = None
     data: dict[str, Any] | None = None
     json_schema: dict[str, Any] | None = None
     errors: list[str] = Field(default_factory=list)

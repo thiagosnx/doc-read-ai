@@ -37,6 +37,7 @@ class ProcessDocumentUseCase:
             status=state.get("status", PipelineStatus.FAILED),
             verdict=state.get("verdict"),
             analysis=state.get("analysis"),
+            schema_source=state.get("schema_source"),
             data=state.get("data"),
             json_schema=state.get("json_schema"),
             errors=state.get("errors", []),
