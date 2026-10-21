@@ -8,14 +8,20 @@ build_schema (determinístico) -> extract (extrator)
 Qualquer DocReadError num nó vira status FAILED e encerra o grafo. Para estender (ex: um nó
 `review` depois de `extract`), crie o nó, troque a aresta `extract -> END` por
 `_continue_or_end("review")` e adicione `review -> END`.
+
+Cada nó vira um span `doc_read.step <nó>` filho do span raiz do documento, e a duração vai para
+o histograma `doc_read.step.duration` (só API do OpenTelemetry; no-op sem SDK configurado).
 """
 
 import operator
+import time
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Annotated, Any, TypedDict
 
 from langgraph.graph import END, START, StateGraph
+from opentelemetry import metrics, trace
+from opentelemetry.trace import Status, StatusCode
 from pydantic import BaseModel
 
 from doc_read_ai.application.agents import (
@@ -37,6 +43,11 @@ from doc_read_ai.domain.document import Document
 from doc_read_ai.domain.errors import DocReadError
 from doc_read_ai.domain.ports import SchemaRegistryPort
 
+tracer = trace.get_tracer("doc_read_ai")
+_step_duration = metrics.get_meter("doc_read_ai").create_histogram(
+    "doc_read.step.duration", unit="ms", description="Duração de cada nó do grafo"
+)
+
 
 class GraphState(TypedDict, total=False):
     document: Document
@@ -55,16 +66,28 @@ Node = Callable[[GraphState], Awaitable[dict[str, Any]]]
 
 
 def _guarded(name: str, node: Node) -> Node:
-    """Converte DocReadError em status FAILED + mensagem de erro, sem derrubar o grafo."""
+    """Converte DocReadError em status FAILED + mensagem de erro, sem derrubar o grafo.
+
+    Também abre o span do nó e mede a duração (outcome ok|error).
+    """
 
     async def wrapper(state: GraphState) -> dict[str, Any]:
-        try:
-            return await node(state)
-        except DocReadError as exc:
-            return {
-                "status": PipelineStatus.FAILED,
-                "errors": [f"[{name}] {type(exc).__name__}: {exc}"],
-            }
+        started, outcome = time.perf_counter(), "error"
+        with tracer.start_as_current_span(
+            f"doc_read.step {name}", attributes={"doc_read.step": name}
+        ) as span:
+            try:
+                update = await node(state)
+                outcome = "ok"
+                return update
+            except DocReadError as exc:
+                message = f"{type(exc).__name__}: {exc}"
+                span.record_exception(exc)
+                span.set_status(Status(StatusCode.ERROR, message[:500]))
+                return {"status": PipelineStatus.FAILED, "errors": [f"[{name}] {message}"]}
+            finally:
+                elapsed_ms = (time.perf_counter() - started) * 1000
+                _step_duration.record(elapsed_ms, {"step": name, "outcome": outcome})
 
     return wrapper
 

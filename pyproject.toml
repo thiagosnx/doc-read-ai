@@ -7,12 +7,20 @@ license = "MIT"
 requires-python = ">=3.12"
 dependencies = [
     "anthropic>=1.17.0",
+    "fastapi>=0.156.8",
     "langgraph>=1.2.16",
+    "opentelemetry-api>=1.45.1",
+    "opentelemetry-exporter-otlp-proto-http>=1.45.1",
+    "opentelemetry-instrumentation-fastapi>=0.66b1",
+    "opentelemetry-instrumentation-logging>=0.66b1",
+    "opentelemetry-sdk>=1.45.1",
     "pydantic>=2.14.1",
     "pydantic-settings>=2.16.1",
+    "python-multipart>=0.0.32",
     "pyyaml>=6.0.3",
     "rich>=15.0.0",
     "typer>=0.27.3",
+    "uvicorn[standard]>=0.54.0",
 ]
 
 [dependency-groups]
@@ -24,6 +32,7 @@ dev = [
 
 [project.scripts]
 doc-read = "doc_read_ai.interfaces.cli:app"
+doc-read-api = "doc_read_ai.interfaces.api.__main__:main"
 
 [build-system]
 requires = ["uv_build>=0.10.0,<0.11"]

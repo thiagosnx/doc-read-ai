@@ -18,7 +18,8 @@ _SIGNATURES: list[tuple[bytes, str]] = [
 ]
 
 
-def _detect_media_type(head: bytes) -> str | None:
+def detect_media_type(head: bytes) -> str | None:
+    """Tipo do arquivo pelos primeiros 12 bytes (magic bytes); None se não for suportado."""
     for signature, media_type in _SIGNATURES:
         if head.startswith(signature):
             return media_type
@@ -50,7 +51,7 @@ class LocalFileLoader(DocumentLoaderPort):
             )
 
         content = path.read_bytes()
-        media_type = _detect_media_type(content[:12])
+        media_type = detect_media_type(content[:12])
         if media_type is None:
             raise UnsupportedDocumentError(
                 f"'{path.name}' não é um formato suportado. Aceitamos apenas PDF, PNG, JPEG, "

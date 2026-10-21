@@ -17,6 +17,8 @@ samples/*
 !samples/.gitkeep
 # Schemas registrados derivam dos seus documentos: revise antes de versionar
 schemas/
+# Bancos locais: histórico de execuções (com dados extraídos) e spans de telemetria
+data/
 .pytest_cache/
 .ruff_cache/
 

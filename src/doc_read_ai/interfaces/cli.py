@@ -30,6 +30,7 @@ from doc_read_ai.domain.config import AppConfig
 from doc_read_ai.domain.errors import DocReadError
 from doc_read_ai.infrastructure.config import Settings
 from doc_read_ai.infrastructure.loaders import SUPPORTED_EXTENSIONS
+from doc_read_ai.infrastructure.observability import configure_observability
 
 app = typer.Typer(
     help="Leitura autônoma de documentos (PDF/imagem) com agentes de IA.",
@@ -78,6 +79,8 @@ def process(
     files = _collect_files(path)
     app_config = _load_config_or_exit(config)
     _ensure_api_keys(app_config)
+    # Antes do use case: os clientes do SDK só emitem spans se o provider global já existir.
+    telemetry = configure_observability(service_name="doc-read-ai-cli", pricing=app_config.pricing)
 
     try:
         use_case = build_use_case(config_path=config)
@@ -86,7 +89,10 @@ def process(
 
     out.mkdir(parents=True, exist_ok=True)
     console.print(f"[bold]Processando {len(files)} arquivo(s)[/] (concorrência: {concurrency})\n")
-    results = asyncio.run(_process_all(use_case, files, out, concurrency))
+    try:
+        results = asyncio.run(_process_all(use_case, files, out, concurrency))
+    finally:
+        telemetry.shutdown()  # descarrega os exportadores em lote antes de sair
 
     counts = {s: sum(r.status == s for r in results) for s in PipelineStatus}
     console.print(

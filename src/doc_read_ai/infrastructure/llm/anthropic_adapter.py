@@ -7,6 +7,10 @@ usa dois modos:
 - strict:  `messages.parse` com output_format (garantia de schema pelo servidor);
 - lenient: schema vai no prompt, a resposta JSON é validada com Pydantic e, se falhar,
            o modelo recebe os erros e tem uma chance de corrigir.
+
+Telemetria: o SDK da Anthropic já emite o span `anthropic.messages.create` (com gen_ai.usage.*)
+quando há um TracerProvider global. Aqui só gravamos no span corrente (`invoke_agent`) o modo,
+as tentativas e os tokens somados em doc_read.usage.* (contrato do LLMPort), sem conteúdo.
 """
 
 import base64
@@ -14,9 +18,11 @@ import json
 import logging
 import os
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import Any, TypeVar
 
 import anthropic
+from opentelemetry import metrics, trace
 from pydantic import BaseModel, ValidationError
 
 from doc_read_ai.domain.config import AgentConfig, ProviderConfig
@@ -27,6 +33,10 @@ from doc_read_ai.domain.ports import LLMPort
 T = TypeVar("T", bound=BaseModel)
 
 logger = logging.getLogger(__name__)
+
+_tokens = metrics.get_meter("doc_read_ai").create_counter(
+    "doc_read.llm.tokens", unit="{token}", description="Tokens consumidos por agente/modelo"
+)
 
 # Limites da API da Anthropic para arquivos enviados em base64.
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
@@ -52,6 +62,16 @@ REPAIR_INSTRUCTION = (
     "O JSON que você devolveu não passou na validação do schema:\n{errors}\n\n"
     "Devolva o objeto JSON completo e corrigido, somente o JSON."
 )
+
+
+@dataclass
+class _CallStats:
+    """Acumulado de uma chamada a generate_structured (inclui a retentativa do modo lenient)."""
+
+    mode: str = "strict"
+    attempts: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
 
 
 class AnthropicLLM(LLMPort):
@@ -110,8 +130,9 @@ class AnthropicLLM(LLMPort):
             limit, block_type = MAX_IMAGE_BYTES, "image"
         if document.size_bytes > limit:
             size_mb = document.size_bytes / 1024 / 1024
+            # Sem o nome do arquivo: a mensagem vai para spans/logs e pode conter dados pessoais.
             raise LLMError(
-                f"'{document.filename}' tem {size_mb:.1f} MB; a Anthropic aceita no máximo "
+                f"O documento tem {size_mb:.1f} MB; a Anthropic aceita no máximo "
                 f"{limit // 1024 // 1024} MB para {document.kind.value}."
             )
         data = base64.standard_b64encode(document.content).decode("ascii")
@@ -133,6 +154,7 @@ class AnthropicLLM(LLMPort):
         if document is not None:
             blocks.append(self._document_block(document))
         blocks.append({"type": "text", "text": instruction})
+        stats = _CallStats()
 
         unions, optional = schema_complexity(output_schema.model_json_schema())
         if unions > MAX_UNION_PARAMS or optional > MAX_OPTIONAL_PARAMS:
@@ -143,25 +165,31 @@ class AnthropicLLM(LLMPort):
                 unions,
                 optional,
             )
-            return await self._generate_lenient(system_prompt, blocks, output_schema)
+            return await self._generate_lenient(system_prompt, blocks, output_schema, stats)
 
         try:
-            return await self._generate_strict(system_prompt, blocks, output_schema)
+            return await self._generate_strict(system_prompt, blocks, output_schema, stats)
         except LLMError as e:
             # O limite interno de gramática não é publicado: se o servidor recusar o schema
             # por complexidade, tenta de novo no modo lenient.
             cause = e.__cause__
             if isinstance(cause, anthropic.BadRequestError) and _is_complexity_error(cause):
                 logger.info("Schema recusado por complexidade; repetindo no modo lenient.")
-                return await self._generate_lenient(system_prompt, blocks, output_schema)
+                return await self._generate_lenient(system_prompt, blocks, output_schema, stats)
             raise
 
     async def _generate_strict(
-        self, system_prompt: str, blocks: list[dict[str, Any]], output_schema: type[T]
+        self,
+        system_prompt: str,
+        blocks: list[dict[str, Any]],
+        output_schema: type[T],
+        stats: _CallStats,
     ) -> T:
+        stats.mode = "strict"
         response = await self._call(
             self._client.beta.messages.parse,
             output_schema,
+            stats,
             system=system_prompt,
             messages=[{"role": "user", "content": blocks}],
             output_format=output_schema,
@@ -176,8 +204,13 @@ class AnthropicLLM(LLMPort):
         return parsed
 
     async def _generate_lenient(
-        self, system_prompt: str, blocks: list[dict[str, Any]], output_schema: type[T]
+        self,
+        system_prompt: str,
+        blocks: list[dict[str, Any]],
+        output_schema: type[T],
+        stats: _CallStats,
     ) -> T:
+        stats.mode = "lenient"
         schema = json.dumps(output_schema.model_json_schema(), ensure_ascii=False)
         content = [*blocks, {"type": "text", "text": LENIENT_INSTRUCTION.format(schema=schema)}]
         messages: list[dict[str, Any]] = [{"role": "user", "content": content}]
@@ -186,6 +219,7 @@ class AnthropicLLM(LLMPort):
             response = await self._call(
                 self._client.beta.messages.create,
                 output_schema,
+                stats,
                 system=system_prompt,
                 messages=messages,
             )
@@ -216,10 +250,12 @@ class AnthropicLLM(LLMPort):
         self,
         method: Callable[..., Awaitable[Any]],
         output_schema: type[BaseModel],
+        stats: _CallStats,
         **kwargs: Any,
     ) -> Any:
         """Chama o SDK e traduz erros para LLMError, do mais específico ao mais genérico."""
         agent, model = self._agent.name, self._agent.model
+        stats.attempts += 1
         try:
             response = await method(
                 model=model, max_tokens=self._agent.max_tokens, **kwargs, **self._extra
@@ -262,7 +298,35 @@ class AnthropicLLM(LLMPort):
             usage.output_tokens,
             _response_rid(response),
         )
+        self._record_usage(stats, response)
         return response
+
+    def _record_usage(self, stats: _CallStats, response: Any) -> None:
+        """Grava no span corrente (invoke_agent) o acumulado da chamada e conta os tokens."""
+        usage = response.usage
+        input_tokens, output_tokens = usage.input_tokens or 0, usage.output_tokens or 0
+        stats.input_tokens += input_tokens
+        stats.output_tokens += output_tokens
+        model = getattr(response, "model", None) or self._agent.model
+
+        span = trace.get_current_span()
+        span.set_attributes(
+            {
+                "doc_read.llm.mode": stats.mode,
+                "doc_read.llm.attempts": stats.attempts,
+                "doc_read.usage.input_tokens": stats.input_tokens,
+                "doc_read.usage.output_tokens": stats.output_tokens,
+                "gen_ai.response.model": model,
+            }
+        )
+        if response.stop_reason:
+            span.set_attribute("gen_ai.response.finish_reasons", [str(response.stop_reason)])
+        if request_id := getattr(response, "_request_id", None):
+            span.set_attribute("doc_read.llm.request_id", str(request_id))
+
+        labels = {"agent": self._agent.name, "provider": self._agent.provider, "model": model}
+        _tokens.add(input_tokens, {**labels, "token_type": "input"})
+        _tokens.add(output_tokens, {**labels, "token_type": "output"})
 
     def _check_stop_reason(self, response: Any) -> None:
         agent, rid = self._agent.name, _response_rid(response)

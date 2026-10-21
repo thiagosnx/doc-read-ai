@@ -125,3 +125,4 @@ class ExtractionResult(BaseModel):
     data: dict[str, Any] | None = None
     json_schema: dict[str, Any] | None = None
     errors: list[str] = Field(default_factory=list)
+    trace_id: str | None = Field(default=None, description="Trace OpenTelemetry da execução")

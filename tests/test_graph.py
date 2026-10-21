@@ -281,3 +281,27 @@ async def test_non_fiscal_document_curriculo(
     }
     assert result.data["habilidades"] == ["Python", "LangGraph"]
     assert result.data["extra_fields"] == []
+
+
+async def test_stream_emits_one_event_per_step_then_done(
+    config_path: Path, png_file: Path, nfe_factory: FakeLLMFactory
+) -> None:
+    """Contrato do progresso consumido pela API/SSE."""
+    document = LocalFileLoader().load(png_file)
+    use_case = _use_case(config_path, nfe_factory)
+
+    events = [e async for e in use_case.stream_document(document, run_id="run-1")]
+
+    assert [e.step for e in events] == [
+        "validate",
+        "classify",
+        "resolve_schema",
+        "design_schema",
+        "build_schema",
+        "extract",
+        "done",
+    ]
+    assert events[1].detail["document_type"] == "nota_fiscal_eletronica"
+    assert events[3].detail["schema_source"] == "designed"
+    assert events[-1].result and events[-1].result.status == PipelineStatus.EXTRACTED
+    assert all(e.result is None for e in events[:-1])

@@ -36,10 +36,20 @@ class SchemaRegistryConfig(BaseModel):
     path: str = "schemas"
 
 
+class ModelPricing(BaseModel):
+    """Preço de um modelo em USD por 1M de tokens (governança de custo local)."""
+
+    input_per_mtok: float
+    output_per_mtok: float
+
+
 class AppConfig(BaseModel):
     agents: dict[str, AgentConfig]
     providers: dict[str, ProviderConfig] = Field(default_factory=dict)
     schema_registry: SchemaRegistryConfig = Field(default_factory=SchemaRegistryConfig)
+    pricing: dict[str, ModelPricing] = Field(
+        default_factory=dict, description="Chave = id do modelo. Sem preço, o custo conta 0"
+    )
 
     def agent(self, name: str) -> AgentConfig:
         if name not in self.agents:

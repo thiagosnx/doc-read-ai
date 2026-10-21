@@ -59,3 +59,17 @@ providers:
     api_key_env: ANTHROPIC_API_KEY
     timeout_seconds: 300
     max_retries: 3
+
+# Preço por modelo em USD por 1M de tokens (entrada / saída). Usado só na governança de custo
+# local (endpoints de telemetria); nada é cobrado com base nisto. Os preços mudam: atualize
+# aqui quando a Anthropic (ou outro provedor) mudar a tabela. Modelo sem preço conta custo 0.
+pricing:
+  claude-haiku-5-5:
+    input_per_mtok: 0.10
+    output_per_mtok: 0.50
+  claude-sonnet-5-5:
+    input_per_mtok: 2.00
+    output_per_mtok: 10.00
+  claude-opus-5-5:
+    input_per_mtok: 4.00
+    output_per_mtok: 20.00

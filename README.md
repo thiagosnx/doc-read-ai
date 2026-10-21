@@ -66,8 +66,12 @@ src/doc_read_ai/
 │   ├── llm/             # AnthropicLLM + LLMRegistry (strategy por provedor)
 │   ├── loaders/         # LocalFileLoader (detecção por magic bytes)
 │   ├── registry/        # registro de schemas (JSON em disco / memória)
+│   ├── observability/   # OpenTelemetry: providers, exportadores, spans locais
+│   ├── persistence/     # histórico de execuções (SQLite)
 │   └── config/          # leitura do YAML e do .env
-├── interfaces/cli.py    # adapter de entrada (Typer)
+├── interfaces/
+│   ├── cli.py           # adapter de entrada (Typer)
+│   └── api/             # adapter de entrada (FastAPI)
 └── bootstrap.py         # composition root: único lugar que conhece as classes concretas
 ```
 
@@ -92,6 +96,48 @@ O JSON de cada documento vai para `output/<nome>.json`.
 uv run pytest      # testes com LLM fake, sem chamadas de rede
 uv run ruff check
 ```
+
+## API (FastAPI)
+
+```bash
+uv run doc-read-api            # http://127.0.0.1:8000  · docs interativas em /docs
+```
+
+| Rota | O que faz |
+|---|---|
+| `POST /v1/documents` | Envia 1+ arquivos (multipart `files`). Processa em segundo plano e devolve 202 com os runs (`?wait=true` espera o fim) |
+| `GET /v1/runs` · `GET /v1/runs/{id}` | Histórico e resultado de cada execução |
+| `GET /v1/runs/{id}/events` | Progresso ao vivo por SSE (um evento por etapa do grafo + `done`) |
+| `GET /v1/runs/{id}/trace` | Trace OpenTelemetry da execução |
+| `DELETE /v1/runs/{id}` | Apaga a execução e o resultado (direito de eliminação, LGPD) |
+| `GET/PUT/DELETE /v1/schemas/...` | Registro de schemas por tipo de documento |
+| `GET /v1/agents` | Agentes, provedores e modelos (sem segredos) |
+| `GET /v1/observability/summary` | Governança: execuções, tokens, custo por agente/modelo, latência por etapa e como os dados são tratados |
+| `GET /health` · `GET /ready` | Liveness e readiness |
+
+O arquivo enviado nunca é gravado em disco (só o hash SHA-256). O OpenAPI em `/openapi.json` serve para gerar o cliente do frontend.
+
+## Observabilidade (OpenTelemetry)
+
+Tudo é OTel padrão, sem SDK de fornecedor na aplicação. Cada documento gera um trace:
+
+```
+POST /v1/documents                      (FastAPI)
+└─ doc_read.process_document            (caso de uso)
+   ├─ doc_read.step validate
+   │  └─ invoke_agent orchestrator
+   │     └─ anthropic.messages.create   (SDK da Anthropic, com gen_ai.usage.*)
+   ├─ doc_read.step classify ...
+   └─ doc_read.step extract ...
+```
+
+Métricas: `doc_read.documents`, `doc_read.document.duration`, `doc_read.step.duration`, `doc_read.llm.tokens`. Os logs carregam o `trace_id`.
+
+Para onde vai:
+- **Local (sempre):** os spans são gravados em `data/telemetry.db` e alimentam `/v1/observability/*`.
+- **Qualquer backend OTLP** (collector, Grafana, Honeycomb, Datadog, Langfuse...): variáveis `OTEL_EXPORTER_OTLP_*` padrão (veja `.env.example`). Sem endpoint, nada sai da máquina.
+
+Privacidade: nome de arquivo nunca vai para a telemetria; prompts e respostas não são exportados (modo `metadata_only` do SDK); o banco local descarta atributos de conteúdo mesmo se o modo for alterado.
 
 ## Formatos aceitos
 
