@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Annotated, Any, NoReturn
 
@@ -25,6 +26,11 @@ app = typer.Typer(
     no_args_is_help=True,
     add_completion=False,
 )
+# No Windows a saída redirecionada usa cp1252 e quebra os acentos; força UTF-8.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8")
+
 console = Console()
 
 STATUS_STYLE = {
