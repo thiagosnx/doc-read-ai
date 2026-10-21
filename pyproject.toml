@@ -1,0 +1,41 @@
+[project]
+name = "doc-read-ai"
+version = "0.1.0"
+description = "Leitura autônoma de documentos (PDF/imagem) com agentes LangGraph, arquitetura hexagonal e schemas Pydantic dinâmicos"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12"
+dependencies = [
+    "anthropic>=1.17.0",
+    "langgraph>=1.2.16",
+    "pydantic>=2.14.1",
+    "pydantic-settings>=2.16.1",
+    "pyyaml>=6.0.3",
+    "rich>=15.0.0",
+    "typer>=0.27.3",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "ruff>=0.17.1",
+]
+
+[project.scripts]
+doc-read = "doc_read_ai.interfaces.cli:app"
+
+[build-system]
+requires = ["uv_build>=0.10.0,<0.11"]
+build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

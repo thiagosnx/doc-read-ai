@@ -1,0 +1,45 @@
+# Cada agente escolhe provedor + modelo de forma independente (Strategy).
+# Para trocar de provedor: registre um adapter novo e mude `provider` aqui. Nada mais muda.
+#
+# `params` vai direto para o adapter do provedor. Para anthropic:
+#   effort:    low | medium | high | xhigh | max  (controla profundidade do raciocínio)
+#   fallbacks: default  (re-tenta no servidor em outro modelo se houver recusa; só Opus/Sonnet 5.5,
+#                        o Haiku não tem fallback)
+#
+# `system_prompt` (opcional) sobrescreve o prompt padrão do agente.
+#
+# Todos no claude-haiku-5-5: o modelo mais barato da linha atual ($0.10 / $0.50 por 1M tokens).
+# O effort é o que muda entre eles. Se algum tipo de documento sair ruim, suba só aquele agente
+# (ex: analyst -> claude-sonnet-5-5).
+
+agents:
+  # Porteiro: decide se o arquivo é um documento válido e legível.
+  orchestrator:
+    provider: anthropic
+    model: claude-haiku-5-5
+    max_tokens: 4096
+    params:
+      effort: low
+
+  # Analista: descobre que documento é, entende a estrutura e desenha o schema de extração.
+  # É a etapa que mais exige raciocínio, por isso o effort mais alto.
+  analyst:
+    provider: anthropic
+    model: claude-haiku-5-5
+    max_tokens: 16000
+    params:
+      effort: high
+
+  # Extrator: preenche o schema dinâmico com os dados do documento.
+  extractor:
+    provider: anthropic
+    model: claude-haiku-5-5
+    max_tokens: 16000
+    params:
+      effort: medium
+
+providers:
+  anthropic:
+    api_key_env: ANTHROPIC_API_KEY
+    timeout_seconds: 300
+    max_retries: 3

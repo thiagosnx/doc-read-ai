@@ -1,0 +1,35 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Segredos e artefatos locais
+.env
+output/*
+!output/.gitkeep
+samples/*
+!samples/.gitkeep
+.pytest_cache/
+.ruff_cache/
+
+# Nunca versionar documentos reais (notas, faturas, documentos pessoais) nem resultados
+*.pdf
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.gif
+*.tif
+*.tiff
+*.heic
+*.bmp
+
+# Variações de .env (só o exemplo vai pro git)
+.env.*
+!.env.example
